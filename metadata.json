@@ -1,0 +1,20 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Black Forest"
+            }
+        ],
+        "Category": "Online Services",
+        "Description": "Dota 2 pro games on now, the score, and the YouTube stream.",
+        "Icon": "applications-games",
+        "Id": "com.blackforest.procircuit",
+        "License": "GPL-2.0-or-later",
+        "Name": "Pro Circuit",
+        "Version": "1.0",
+        "Website": "https://liquipedia.net/dota2/"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-MainScript": "ui/main.qml"
+}
