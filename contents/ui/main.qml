@@ -336,10 +336,11 @@ PlasmoidItem {
 
     function refreshLive() {
         request("https://api.opendota.com/api/live", function (rows) {
+            var now = Math.floor(Date.now() / 1000)
             var ids = []
             for (var i = 0; i < rows.length; i++) {
                 var id = rows[i].league_id
-                if (id > 0 && rows[i].team_name_radiant && rows[i].team_name_dire && ids.indexOf(id) < 0)
+                if (id > 0 && rows[i].team_name_radiant && rows[i].team_name_dire && Circuit.matchIsLive(rows[i], now) && ids.indexOf(id) < 0)
                     ids.push(id)
             }
             resolveLeagues(ids, 0, function () {
@@ -347,6 +348,8 @@ PlasmoidItem {
                 for (var j = 0; j < rows.length; j++) {
                     var row = rows[j]
                     if (!(row.league_id > 0) || !row.team_name_radiant || !row.team_name_dire)
+                        continue
+                    if (!Circuit.matchIsLive(row, now))
                         continue
                     var info = root.leagueNames[row.league_id] || { name: "League " + row.league_id, tier: "" }
                     if (info.tier && info.tier !== "professional" && info.tier !== "premium")
