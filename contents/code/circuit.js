@@ -254,7 +254,7 @@ function liquipediaHref(page) {
 function dateLine(event) {
     if (!event.endLabel || event.endLabel === event.startLabel)
         return event.startLabel
-    return event.startLabel + " – " + event.endLabel
+    return event.startLabel + " \u2013 " + event.endLabel
 }
 
 function streamOrder(event) {
@@ -294,9 +294,31 @@ function tokens(value) {
     })
 }
 
+// Steam leaves the score and the viewer count on a lobby after it closes.
+// Neither number means the game is still on, and neither does a league
+// name that shares a word with something on the calendar.
+var LIVE_UPDATE_SECONDS = 8 * 60
+
+function matchIsLive(row, nowSeconds) {
+    if (!row)
+        return false
+    var closed = Number(row.deactivate_time)
+    if (isFinite(closed) && closed > 0)
+        return false
+    var updated = Number(row.last_update_time)
+    var now = Number(nowSeconds)
+    if (!isFinite(updated) || updated <= 0 || !isFinite(now))
+        return false
+    var age = now - updated
+    if (age < 0)
+        age = 0
+    return age <= LIVE_UPDATE_SECONDS
+}
+
 // A live lobby stays on the desk only when it belongs to an event that is
 // still inside its dates. A finished season number does not ride along on
 // a newer season that happens to share the word "DreamLeague".
+// This does not decide that a lobby is live. matchIsLive does that.
 function leagueStillOn(league, events) {
     var leagueTokens = tokens(league)
     var leagueSet = {}
