@@ -351,6 +351,8 @@ PlasmoidItem {
                     var info = root.leagueNames[row.league_id] || { name: "League " + row.league_id, tier: "" }
                     if (info.tier && info.tier !== "professional" && info.tier !== "premium")
                         continue
+                    if (!Circuit.leagueStillOn(info.name, root.events))
+                        continue
                     next.push({
                         matchId: String(row.match_id || j),
                         league: info.name,
@@ -407,12 +409,12 @@ PlasmoidItem {
                 if (Object.prototype.hasOwnProperty.call(root.streamKnown, parsed[i].page))
                     parsed[i].youtube = root.streamKnown[parsed[i].page]
             }
-            parsed.sort(function (a, b) { return Circuit.streamOrder(a) - Circuit.streamOrder(b) })
+            parsed.sort(function (a, b) { return Circuit.compareEvents(a, b) })
             root.events = parsed
             root.note = ""
             var queue = []
             for (var j = 0; j < parsed.length && queue.length < 3; j++) {
-                if (!Object.prototype.hasOwnProperty.call(root.streamKnown, parsed[j].page) && parsed[j].section !== "completed")
+                if (!Object.prototype.hasOwnProperty.call(root.streamKnown, parsed[j].page) && parsed[j].section !== "completed" && parsed[j].section !== "past")
                     queue.push(parsed[j].page)
             }
             root.streamQueue = queue
