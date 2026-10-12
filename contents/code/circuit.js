@@ -28,56 +28,109 @@ function formatGameTime(seconds) {
     return m + ":" + ss
 }
 
+// Just finished is a few days, not a qualifier that ended in the spring.
+var RECENT_DAYS = 3
+
 function daysBetween(today, date) {
     var a = Date.parse(today + "T00:00:00Z")
     var b = Date.parse(date + "T00:00:00Z")
     if (!isFinite(a) || !isFinite(b))
-        return 0
+        return NaN
     return Math.round((b - a) / 86400000)
 }
 
 function whenLabel(section, today, start, end) {
-    if (section === "completed")
+    if (section === "completed" || section === "past")
         return "Finished"
     if (section === "ongoing") {
         var left = daysBetween(today, end)
-        if (left <= 0)
+        if (!isFinite(left) || left < 0)
+            return "Finished"
+        if (left === 0)
             return "Ends today"
         if (left === 1)
             return "Ends tomorrow"
         return "Ends in " + left + " days"
     }
     var until = daysBetween(today, start)
-    if (until <= 0)
+    if (!isFinite(until) || until < 0)
+        return "Started"
+    if (until === 0)
         return "Starts today"
     if (until === 1)
         return "Tomorrow"
     return "In " + until + " days"
 }
 
-function toIso(label, today) {
-    var match = String(label).trim().match(/^([A-Za-z]{3,9})\s+(\d{1,2})$/)
+function monthDay(label) {
+    var match = String(label || "").trim().match(/^([A-Za-z]{3,9})\s+(\d{1,2})$/)
     if (!match)
-        return today
+        return null
     var month = MONTHS[match[1].slice(0, 3).toLowerCase()]
     if (month === undefined)
-        return today
+        return null
     var day = Number(match[2])
-    var year = Number(today.slice(0, 4))
-    var todayMonth = Number(today.slice(5, 7)) - 1
-    var y = year
-    if (month <= 1 && todayMonth >= 9)
-        y += 1
-    if (month >= 9 && todayMonth <= 1)
-        y -= 1
-    return y + "-" + pad(month + 1) + "-" + pad(day)
+    if (!(day >= 1 && day <= 31))
+        return null
+    return { month: month, day: day }
 }
 
-function endIso(label, start, today) {
-    var iso = toIso(label, today)
-    if (iso < start)
-        iso = String(Number(iso.slice(0, 4)) + 1) + iso.slice(4)
+function isoDate(year, month, day) {
+    return year + "-" + pad(month + 1) + "-" + pad(day)
+}
+
+function addYears(iso, count) {
+    return String(Number(iso.slice(0, 4)) + count) + iso.slice(4)
+}
+
+// Upcoming month-days that already passed this year belong to next year.
+// Ongoing and finished events have already started, so a month-day still
+// ahead on the calendar is last year. That stops a February qualifier,
+// still sitting in the wiki's ongoing list in October, from being filed
+// as next January and shown as live.
+function resolveStart(parts, today, section) {
+    if (!parts)
+        return ""
+    var iso = isoDate(Number(today.slice(0, 4)), parts.month, parts.day)
+    if (section === "upcoming") {
+        if (iso < today)
+            return addYears(iso, 1)
+        return iso
+    }
+    if (iso > today)
+        return addYears(iso, -1)
     return iso
+}
+
+function resolveEnd(parts, start, today, section) {
+    if (!parts)
+        return ""
+    var year = start ? Number(start.slice(0, 4)) : Number(today.slice(0, 4))
+    var iso = isoDate(year, parts.month, parts.day)
+    if (start && iso < start)
+        iso = addYears(iso, 1)
+    if (!start && section === "upcoming" && iso < today)
+        iso = addYears(iso, 1)
+    if (!start && section !== "upcoming" && iso > today)
+        iso = addYears(iso, -1)
+    return iso
+}
+
+function placeEvent(section, start, end, today) {
+    if (!end) {
+        if (start && start > today)
+            return "upcoming"
+        return "past"
+    }
+    if (end < today) {
+        var ago = -daysBetween(today, end)
+        if (isFinite(ago) && ago <= RECENT_DAYS)
+            return "completed"
+        return "past"
+    }
+    if (!start || start > today)
+        return start ? "upcoming" : "past"
+    return "ongoing"
 }
 
 function isQualifier(page, name) {
@@ -116,17 +169,17 @@ function parseTicker(wikitext, today) {
         var startMatch = line.match(/startdate=([A-Za-z]{3,9}\s+\d{1,2})/i)
         var endMatch = line.match(/enddate=([A-Za-z]{3,9}\s+\d{1,2})/i)
         var startLabel = startMatch ? startMatch[1] : ""
-        var endLabel = endMatch ? endMatch[1] : startLabel
-        var start = startLabel ? toIso(startLabel, today) : today
-        var end = endLabel ? endIso(endLabel, start, today) : start
+        var endLabel = endMatch ? endMatch[1] : ""
+        var start = resolveStart(monthDay(startLabel), today, section)
+        var end = resolveEnd(monthDay(endLabel), start, today, section)
         events.push({
             page: page,
             name: name,
-            section: section,
+            section: placeEvent(section, start, end, today),
             start: start,
             end: end,
-            startLabel: startLabel || start,
-            endLabel: endLabel || end,
+            startLabel: startLabel,
+            endLabel: endLabel,
             qualifier: isQualifier(page, name),
             streamer: isStreamer(page, name),
             youtube: ""
@@ -206,6 +259,81 @@ function dateLine(event) {
 
 function streamOrder(event) {
     var side = event.qualifier || event.streamer ? 2 : 0
-    var when = event.section === "ongoing" ? 0 : event.section === "upcoming" ? 1 : 4
+    var when = event.section === "ongoing" ? 0 : event.section === "upcoming" ? 1 : event.section === "completed" ? 4 : 8
     return when + side
+}
+
+function compareEvents(a, b) {
+    var primary = streamOrder(a) - streamOrder(b)
+    if (primary)
+        return primary
+    if (a.section === "completed" || a.section === "past")
+        return a.end < b.end ? 1 : a.end > b.end ? -1 : 0
+    return a.start < b.start ? -1 : a.start > b.start ? 1 : 0
+}
+
+var GENERIC_TOKEN = {
+    dota: true,
+    dreamleague: true,
+    season: true,
+    qualifier: true,
+    qualifiers: true,
+    open: true,
+    closed: true,
+    league: true,
+    cup: true,
+    series: true,
+    the: true,
+    pro: true,
+    tournament: true
+}
+
+function tokens(value) {
+    return String(value).toLowerCase().replace(/(\d+)/g, " $1 ").replace(/[^a-z0-9]+/g, " ").split(" ").filter(function (word) {
+        return word.length > 2 || /^\d{2,}$/.test(word)
+    })
+}
+
+// A live lobby stays on the desk only when it belongs to an event that is
+// still inside its dates. A finished season number does not ride along on
+// a newer season that happens to share the word "DreamLeague".
+function leagueStillOn(league, events) {
+    var leagueTokens = tokens(league)
+    var leagueSet = {}
+    var leagueNumbers = []
+    leagueTokens.forEach(function (word) {
+        leagueSet[word] = true
+        if (/^\d+$/.test(word))
+            leagueNumbers.push(word)
+    })
+    var matched = []
+    for (var i = 0; i < events.length; i++) {
+        var event = events[i]
+        var eventTokens = tokens(event.name + " " + event.page)
+        var shared = []
+        for (var t = 0; t < eventTokens.length; t++) {
+            if (leagueSet[eventTokens[t]] && shared.indexOf(eventTokens[t]) < 0)
+                shared.push(eventTokens[t])
+        }
+        if (leagueNumbers.length) {
+            var numberHit = false
+            for (var n = 0; n < leagueNumbers.length; n++) {
+                if (shared.indexOf(leagueNumbers[n]) >= 0)
+                    numberHit = true
+            }
+            if (!numberHit)
+                continue
+        }
+        var specific = shared.filter(function (word) { return !GENERIC_TOKEN[word] })
+        if (!specific.length)
+            continue
+        matched.push(event)
+    }
+    if (!matched.length)
+        return true
+    for (var m = 0; m < matched.length; m++) {
+        if (matched[m].section === "ongoing")
+            return true
+    }
+    return false
 }
